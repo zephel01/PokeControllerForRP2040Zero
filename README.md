@@ -76,3 +76,14 @@ Poke-Controller Modified の標準プロトコル（16進文字列）をサポ�
 ## ライセンス
 
 [MIT License](LICENSE)
+
+---
+
+## 謝辞・参考プロジェクト
+
+本プロジェクトは、以下の素晴らしいオープンソースプロジェクトや情報を参考に作成されました。
+
+- **[Adafruit TinyUSB Library](https://github.com/adafruit/Adafruit_TinyUSB_Arduino)**: RP2040 での柔軟な USB デバイス実装を可能にするライブラリ
+- **[KawaSwitch/PokeControllerForPico](https://github.com/KawaSwitch/PokeControllerForPico)**: RP2040 (Raspberry Pi Pico) を用いた実装の先駆的なプロジェクト
+- **[Earle Philhower's Arduino-Pico Core](https://github.com/earlephilhower/arduino-pico)**: Arduino 環境で RP2040 を扱うための強力なコア
+- **[HORI PAD](https://hori.jp/)**: コントローラーとしての動作プロファイルの参考
