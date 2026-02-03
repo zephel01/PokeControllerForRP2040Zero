@@ -1,9 +1,16 @@
 #include <Arduino.h>
 #include <Adafruit_TinyUSB.h>
+#include <Adafruit_NeoPixel.h>
 
 /**
  * RP2040-Zero (Waveshare) 用 Switch コントローラー雛形
  */
+
+// ==========================================
+// 0) LED (NeoPixel) 設定
+// ==========================================
+// PIN_NEOPIXEL は Board Variant で定義済み (16)
+Adafruit_NeoPixel neopixel(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
 
 // ==========================================
 // 1) UART 設定 (RP2040-Zero: GP0/GP1)
@@ -70,6 +77,12 @@ void setup() {
   // 設定反映のための待機と再接続
   delay(1000);
   TinyUSBDevice.attach();
+  
+  // LED 初期化
+  neopixel.begin();
+  neopixel.setBrightness(30); // 明るさ (0-255)
+  neopixel.setPixelColor(0, neopixel.Color(255, 0, 0)); // 初期状態は赤
+  neopixel.show();
 
   // UART 初期化
   Serial1.setTX(UART_TX_PIN);
@@ -93,8 +106,9 @@ void loop() {
     }
   }
 
-  // 安全装置: 一定時間コマンドが来なければニュートラルに戻す (250ms)
+  // 安全装置 & LED制御
   if (millis() - last_command_ms > 250) {
+    // タイムアウト発生時 (通信なし)
     if (gp_report.buttons != 0 || gp_report.hat != 0x08) {
        gp_report.buttons = 0;
        gp_report.hat = 0x08; // 0x08 = Center
@@ -102,11 +116,21 @@ void loop() {
        gp_report.ly = 0x80;
        gp_report.rx = 0x80;
        gp_report.ry = 0x80;
-       
-       // 通信途絶とみなしてバッファもクリア（ゴミデータ対策）
        serial_idx = 0; 
     }
+
+    // LED状態更新: 接続済みなら青(待機)、未接続なら赤
+    if (TinyUSBDevice.mounted()) {
+      neopixel.setPixelColor(0, neopixel.Color(0, 0, 50)); // 青 (待機中)
+    } else {
+      neopixel.setPixelColor(0, neopixel.Color(50, 0, 0)); // 赤 (未接続)
+    }
+
+  } else {
+    // 通信中 (コマンド受信直後) -> 緑
+    neopixel.setPixelColor(0, neopixel.Color(0, 50, 0));
   }
+  neopixel.show();
 
   // HID 送信処理 (8ms周期)
   static uint32_t last_ms = 0;
