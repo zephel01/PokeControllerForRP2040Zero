@@ -31,6 +31,10 @@ static char rx_buffer[RX_BUFFER_SIZE];
 static int  rx_index = 0;
 static uint32_t last_command_ms = 0;
 
+// タイミング微調整 (マイクロ秒)
+// 環境によって Switch が入力を取りこぼす場合、この値を増やしてみてください (例: 500 - 4000)
+#define REPORT_DELAY_US 0  
+
 // ==========================================
 // 2) HID レポート設定
 // ==========================================
@@ -59,6 +63,7 @@ static switch_report_t gp_report = {0, 0x08, 0x80, 0x80, 0x80, 0x80, 0x00};
 // 前方宣言
 static void parse_protocol_line(char* line);
 static void update_led();
+static bool is_hex_char(char c);
 
 // リカバリ判定用
 static bool was_mounted = false;
@@ -138,6 +143,8 @@ void loop() {
         // パース処理
         parse_protocol_line(rx_buffer);
         rx_index = 0; 
+        
+        // コマンド受信時のみ更新 (parse_protocol_line内で成功判定しても良い)
         last_command_ms = millis();
         current_led_state = LED_ACTIVE;
       }
@@ -199,6 +206,12 @@ void loop() {
     last_ms = now;
     if (is_mounted && usb_hid.ready()) {
       usb_hid.sendReport(0, &gp_report, sizeof(gp_report));
+      
+      // タイミング微調整 (delayMicroseconds)
+      // Switch側が取りこぼす場合の調整弁
+      #if REPORT_DELAY_US > 0
+        delayMicroseconds(REPORT_DELAY_US);
+      #endif
     }
   }
 }
@@ -227,9 +240,22 @@ static void update_led() {
   neopixel.show();
 }
 
+static bool is_hex_char(char c) {
+  return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
+}
+
 // プロトコル解析関数
 static void parse_protocol_line(char* line) {
   if (strlen(line) < 4) return;
+  
+  // 拡張コマンド対応: 先頭が16進数でない場合は無視する
+  // Poke-Controller Modified Extensionなどが特殊コマンド(M=...)などを送ってくる場合の対策
+  if (!is_hex_char(line[0])) {
+    Serial.print("Ignored Unknown Cmd: ");
+    Serial.println(line);
+    return;
+  }
+
   char* p = line;
   
   // デバッグ用: 受信した生データをシリアルに出力 (コメントアウトしてもOK)
