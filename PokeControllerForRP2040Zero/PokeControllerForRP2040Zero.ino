@@ -46,6 +46,7 @@ static void parse_protocol_line(char* line);
 // ==========================================
 static char serial_buf[64];
 static int  serial_idx = 0;
+static uint32_t last_command_ms = 0; // 最終コマンド受信時刻
 
 // ==========================================
 // 4) メインロジック
@@ -85,9 +86,25 @@ void loop() {
         serial_buf[serial_idx] = '\0';
         parse_protocol_line(serial_buf);
         serial_idx = 0;
+        last_command_ms = millis(); // コマンド受信時刻を更新
       }
     } else if (serial_idx < (int)sizeof(serial_buf) - 1) {
       serial_buf[serial_idx++] = c;
+    }
+  }
+
+  // 安全装置: 一定時間コマンドが来なければニュートラルに戻す (250ms)
+  if (millis() - last_command_ms > 250) {
+    if (gp_report.buttons != 0 || gp_report.hat != 0x08) {
+       gp_report.buttons = 0;
+       gp_report.hat = 0x08; // 0x08 = Center
+       gp_report.lx = 0x80;  // 0x80 = Center
+       gp_report.ly = 0x80;
+       gp_report.rx = 0x80;
+       gp_report.ry = 0x80;
+       
+       // 通信途絶とみなしてバッファもクリア（ゴミデータ対策）
+       serial_idx = 0; 
     }
   }
 
@@ -104,6 +121,10 @@ void loop() {
 
 // プロトコル解析関数
 static void parse_protocol_line(char* line) {
+  // 簡易チェック: 文字列が短すぎる場合は無視
+  // "0000 08..." 最低でもこれくらいの長さはあるはず
+  if (strlen(line) < 4) return;
+
   char* p = line;
   
   // 1: Buttons (4 hex chars)
