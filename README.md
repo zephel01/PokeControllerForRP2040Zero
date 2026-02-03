@@ -141,6 +141,16 @@ PC に接続すると、合計 2つの COM ポートが見えるようになり�
 
 ---
 
+## ドキュメント
+
+本プロジェクトの詳細な解説や、v1.3.0 での安定化設計については以下の記事を参照してください。
+
+- **[🕹️ PokeControllerForRP2040Zero 完全解説【決定版】](https://note.com/zephel01/n/ne5a9fec85f12)**
+  - アーキテクチャ、TinyUSB の設定、プロトコル解析ロジックなど、仕組み全体の詳細な解説です。
+
+- **[RP2040-Zero で作る Nintendo Switch 自動操作コントローラー【v1.3.0 完全版】](https://note.com/zephel01/n/n2c64da9ea81b)**
+  - 安定性・信頼性を向上させた v1.3.0 の実装解説（WDT、安全装置、LEDステータスなど）です。
+
 ## ライセンス
 
 [MIT License](LICENSE)
