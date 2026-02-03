@@ -1,33 +1,77 @@
 # PokeControllerForRP2040Zero
 
 RP2040-Zero (Waveshare) を使って Nintendo Switch を操作するためのプロジェクトです。
+PC上の「Poke-Controller Modified」等のツールから UART 経由でコマンドを受け取り、Switch の有線コントローラー (HORIPAD) として動作します。
 
 ## 特徴
 
-- **Waveshare RP2040-Zero に最適化**: 小型なボードで Switch の有線コントローラーとして動作します。
-- **Poke-Controller Modified 対応**: シリアル通信プロトコルを解釈し、PC からの操作を受け付けます。
-- **Adafruit TinyUSB Stack 使用**: 安定した USB HID 動作を提供します。
+- **Waveshare RP2040-Zero に最適化**: 小型かつ安価なボードで動作します。
+- **Poke-Controller Modified 対応**: 標準的なシリアルプロトコルを解釈し、PC からの入力を中継します。
+- **Adafruit TinyUSB Stack 使用**: 高度なカスタマイズが可能な USB スタックを使用し、Switch との高精度な通信を実現します。
 
-## 開発環境
+## 必要なもの
 
-- **Arduino IDE**
-- **Arduino-Pico コア** (Earle Philhower 版)
-- **Adafruit TinyUSB Library** (ライブラリマネージャからインストール)
+### ハードウェア
+- **Waveshare RP2040-Zero**
+- **USB-UART 変換アダプタ** (PCとの通信用)
+- **USB-C ケーブル** (Switchとの接続用)
+- ジャンパ線など
 
-### ボード設定
+### ソフトウェア / ライブラリ
+- **Arduino IDE** (2.0以降推奨)
+- **Arduino-Pico コア** (Earle Philhower版): RP2040 を Arduino IDE で扱うために必要です。
+- **Adafruit TinyUSB Library**: USB HID 通信に使用します。
 
-- ボード: `Waveshare RP2040 Zero`
-- USB Stack: `Adafruit TinyUSB`
+---
 
-## 配線 (Wiring)
+## セットアップ手順
 
-| RP2040-Zero | 機能     | 接続先                  |
-| :---------- | :------- | :---------------------- |
-| **GP0**     | UART0 TX | USB-UART 変換の **RX**  |
-| **GP1**     | UART0 RX | USB-UART 変換の **TX**  |
-| **GND**     | GND      | USB-UART 変換の **GND** |
+### 1. Arduino IDE の準備
 
-USB-C ポートは Switch 本体に接続してください。
+1. Arduino IDE を起動し、`基本設定 (Preferences)` を開きます。
+2. `追加のボードマネージャのURL` に以下の URL を追加します。
+   ```
+   https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+   ```
+3. `ツール` -> `ボード` -> `ボードマネージャ` を開き、**"Raspberry Pi Pico/RP2040"** を検索してインストールします。
+
+### 2. ライブラリのインストール
+
+1. `ツール` -> `ライブラリを管理...` を開きます。
+2. **"Adafruit TinyUSB Library"** を検索してインストールします。
+
+### 3. 書き込み設定 (重要)
+
+Arduino IDE でスケッチを開き、以下の設定を行ってから書き込みを行ってください。
+
+- **ボード**: `Waveshare RP2040 Zero`
+- **USB Stack**: `Adafruit TinyUSB` (必須)
+- **シリアルポート**: RP2040-Zero が接続されているポートを選択
+
+> [!CAUTION]
+> **USB Stack を "Adafruit TinyUSB" に変更してください。** デフォルトの "Arduino" スタックでは正常に動作しません。
+
+---
+
+## 配線図 (Wiring)
+
+PC からのシリアル入力を受け取るために、USB-UART 変換アダプタと以下のように接続します。
+
+| RP2040-Zero | 機能     | 接続先 (USB-UART)  |
+| :---------- | :------- | :----------------- |
+| **GP0**     | UART0 TX | アダプタの **RX**  |
+| **GP1**     | UART0 RX | アダプタの **TX**  |
+| **GND**     | GND      | アダプタの **GND** |
+
+- **USB-C ポート**: Nintendo Switch のドック（または本体）に接続します。
+- **UART 入力**: PC から 115200bps でコマンドを送信します。
+
+---
+
+## プロトコル
+
+Poke-Controller Modified の標準プロトコル（16進文字列）をサポートしています。
+例: `0004 08 80 80 80 80\n`
 
 ## ライセンス
 
