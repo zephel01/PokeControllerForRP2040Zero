@@ -33,7 +33,7 @@ PC上の「Poke-Controller Modified」等のツールから UART 経由でコマ
    - PC に「RPI-RP2」という名前のドライブとして認識されます。
 
 2. **ファームウェアを書き込む**:
-   - [Releases ページ](https://github.com/zephel01/PokeControllerForRP2040Zero/releases/tag/v1.0.0) から `PokeControllerForRP2040Zero_RP2040Zero_v1.0.0.uf2` をダウンロードします。
+   - [Releases ページ](https://github.com/zephel01/PokeControllerForRP2040Zero/releases/tag/v1.1.0) から `PokeControllerForRP2040Zero_RP2040Zero_v1.1.0.uf2` をダウンロードします。
    - ダウンロードした `.uf2` ファイルを、先ほどの「RPI-RP2」ドライブにドラッグ＆ドロップします。
 
 3. **完了**:
