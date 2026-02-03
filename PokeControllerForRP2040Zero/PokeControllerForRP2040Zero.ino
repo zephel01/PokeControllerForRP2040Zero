@@ -1,9 +1,11 @@
 #include <Arduino.h>
 #include <Adafruit_TinyUSB.h>
 #include <Adafruit_NeoPixel.h>
+#include <hardware/watchdog.h>
 
 /**
- * RP2040-Zero (Waveshare) 用 Switch コントローラー雛形
+ * RP2040-Zero Switch Controller
+ * v1.3.0: Debugging (CDC), Recovery, Error LED
  */
 
 // ==========================================
@@ -12,17 +14,26 @@
 // PIN_NEOPIXEL は Board Variant で定義済み (16)
 Adafruit_NeoPixel neopixel(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
 
+// LED状態管理
+enum LedState { LED_DISCONNECT, LED_IDLE, LED_ACTIVE, LED_ERROR };
+static LedState current_led_state = LED_DISCONNECT;
+static uint32_t error_blink_start = 0; // エラー表示開始時刻
+
 // ==========================================
-// 1) UART 設定 (RP2040-Zero: GP0/GP1)
+// 1) UART 設定 & 受信バッファ
 // ==========================================
-static constexpr int UART_TX_PIN = 0;  // GP0
-static constexpr int UART_RX_PIN = 1;  // GP1
+static constexpr int UART_TX_PIN = 0;
+static constexpr int UART_RX_PIN = 1;
 static constexpr uint32_t UART_BAUD = 115200; 
 
-// ==========================================
-// 2) Switch コントローラ用 HID レポート設定
-// ==========================================
+#define RX_BUFFER_SIZE 256
+static char rx_buffer[RX_BUFFER_SIZE];
+static int  rx_index = 0;
+static uint32_t last_command_ms = 0;
 
+// ==========================================
+// 2) HID レポート設定
+// ==========================================
 uint8_t const hid_report_desc[] = {
   0x05, 0x01, 0x09, 0x05, 0xA1, 0x01, 0x15, 0x00, 0x25, 0x01, 0x35, 0x00, 0x45, 0x01, 0x75, 0x01,
   0x95, 0x10, 0x05, 0x09, 0x19, 0x01, 0x29, 0x10, 0x81, 0x02, 0x05, 0x01, 0x25, 0x07, 0x46, 0x3B,
@@ -47,21 +58,24 @@ static switch_report_t gp_report = {0, 0x08, 0x80, 0x80, 0x80, 0x80, 0x00};
 
 // 前方宣言
 static void parse_protocol_line(char* line);
+static void update_led();
+
+// リカバリ判定用
+static bool was_mounted = false;
 
 // ==========================================
-// 3) UART バッファ設定
-// ==========================================
-static char serial_buf[64];
-static int  serial_idx = 0;
-static uint32_t last_command_ms = 0; // 最終コマンド受信時刻
-
-// ==========================================
-// 4) メインロジック
+// 3) メインロジック
 // ==========================================
 
 void setup() {
-  // USB 初期化と設定の反映
-  TinyUSBDevice.detach(); // 一旦切断して再認識を促す
+  watchdog_enable(2000, 1);
+
+  // USB CDC (デバッグ用シリアル) 開始
+  // これにより PC 上でシリアルモニタを開くとログが見れます
+  Serial.begin(115200);
+
+  // USB Device 設定
+  TinyUSBDevice.detach(); 
   TinyUSBDevice.setID(0x0F0D, 0x00C1);
   TinyUSBDevice.setManufacturerDescriptor("HORI");
   TinyUSBDevice.setProductDescriptor("HORIPAD");
@@ -74,91 +88,162 @@ void setup() {
     TinyUSBDevice.begin();
   }
 
-  // 設定反映のための待機と再接続
   delay(1000);
   TinyUSBDevice.attach();
   
   // LED 初期化
   neopixel.begin();
-  neopixel.setBrightness(30); // 明るさ (0-255)
-  neopixel.setPixelColor(0, neopixel.Color(255, 0, 0)); // 初期状態は赤
-  neopixel.show();
+  neopixel.setBrightness(30); 
+  update_led();
 
-  // UART 初期化
+  // UART (Poke-Controller 通信用) 初期化
   Serial1.setTX(UART_TX_PIN);
   Serial1.setRX(UART_RX_PIN);
   Serial1.begin(UART_BAUD);
 }
 
 void loop() {
-  // UART 受信処理
-  while (Serial1.available() > 0) {
+  watchdog_update();
+
+  // ------------------------------------------
+  // 0. USB 接続状態監視 & リカバリ
+  // ------------------------------------------
+  bool is_mounted = TinyUSBDevice.mounted();
+  if (was_mounted && !is_mounted) {
+    // 切断された瞬間
+    Serial.println("USB Unmounted (Disconnected)");
+    // 安全のため入力をリセット
+    gp_report.buttons = 0;
+    gp_report.hat = 0x08;
+    current_led_state = LED_DISCONNECT;
+  } else if (!was_mounted && is_mounted) {
+    // 接続された瞬間
+    Serial.println("USB Mounted (Connected)");
+    current_led_state = LED_IDLE;
+  }
+  was_mounted = is_mounted;
+
+  // ------------------------------------------
+  // 1. UART 受信処理 (デバッグ出力付き)
+  // ------------------------------------------
+  int available_bytes = Serial1.available();
+  while (available_bytes > 0) {
     char c = (char)Serial1.read();
+    available_bytes--;
+
     if (c == '\n' || c == '\r') {
-      if (serial_idx > 0) {
-        serial_buf[serial_idx] = '\0';
-        parse_protocol_line(serial_buf);
-        serial_idx = 0;
-        last_command_ms = millis(); // コマンド受信時刻を更新
+      if (rx_index > 0) {
+        rx_buffer[rx_index] = '\0';
+        
+        // パース処理
+        parse_protocol_line(rx_buffer);
+        rx_index = 0; 
+        last_command_ms = millis();
+        current_led_state = LED_ACTIVE;
       }
-    } else if (serial_idx < (int)sizeof(serial_buf) - 1) {
-      serial_buf[serial_idx++] = c;
-    }
-  }
-
-  // 安全装置 & LED制御
-  if (millis() - last_command_ms > 250) {
-    // タイムアウト発生時 (通信なし)
-    if (gp_report.buttons != 0 || gp_report.hat != 0x08) {
-       gp_report.buttons = 0;
-       gp_report.hat = 0x08; // 0x08 = Center
-       gp_report.lx = 0x80;  // 0x80 = Center
-       gp_report.ly = 0x80;
-       gp_report.rx = 0x80;
-       gp_report.ry = 0x80;
-       serial_idx = 0; 
-    }
-
-    // LED状態更新: 接続済みなら青(待機)、未接続なら赤
-    if (TinyUSBDevice.mounted()) {
-      neopixel.setPixelColor(0, neopixel.Color(0, 0, 50)); // 青 (待機中)
     } else {
-      neopixel.setPixelColor(0, neopixel.Color(50, 0, 0)); // 赤 (未接続)
+      if (rx_index < RX_BUFFER_SIZE - 1) {
+        rx_buffer[rx_index++] = c;
+      } else {
+        // オーバーフロー発生
+        Serial.println("Error: RX Buffer Overflow!");
+        rx_index = 0;
+        
+        // エラーLED点滅開始 (500ms継続)
+        current_led_state = LED_ERROR;
+        error_blink_start = millis();
+      }
     }
-
-  } else {
-    // 通信中 (コマンド受信直後) -> 緑
-    neopixel.setPixelColor(0, neopixel.Color(0, 50, 0));
   }
-  neopixel.show();
 
-  // HID 送信処理 (8ms周期)
+  // ------------------------------------------
+  // 2. 安全装置 & LED制御
+  // ------------------------------------------
+  
+  // エラー表示中はタイムアウト判定をスキップして点滅優先
+  if (current_led_state == LED_ERROR) {
+    if (millis() - error_blink_start > 500) {
+      // エラー表示終了後は接続状態に合わせて戻る
+      current_led_state = is_mounted ? LED_IDLE : LED_DISCONNECT;
+    }
+  } 
+  else if (millis() - last_command_ms > 250) {
+    // タイムアウト (通信なし)
+    if (gp_report.buttons != 0 || gp_report.hat != 0x08) {
+       Serial.println("Timeout: Resetting to neutral");
+       gp_report.buttons = 0;
+       gp_report.hat = 0x08; 
+       gp_report.lx = 0x80; gp_report.ly = 0x80;
+       gp_report.rx = 0x80; gp_report.ry = 0x80;
+       rx_index = 0; 
+    }
+    
+    // 接続状態に応じてLEDを戻す (アクティブ状態からの復帰)
+    if (current_led_state == LED_ACTIVE) {
+        current_led_state = is_mounted ? LED_IDLE : LED_DISCONNECT;
+    }
+    // 未接続なら赤のままにする
+    else if (!is_mounted) {
+        current_led_state = LED_DISCONNECT;
+    }
+  }
+
+  update_led();
+
+  // ------------------------------------------
+  // 3. HID 送信
+  // ------------------------------------------
   static uint32_t last_ms = 0;
   uint32_t now = millis();
   if (now - last_ms >= 8) {
     last_ms = now;
-    if (TinyUSBDevice.mounted() && usb_hid.ready()) {
+    if (is_mounted && usb_hid.ready()) {
       usb_hid.sendReport(0, &gp_report, sizeof(gp_report));
     }
   }
 }
 
+// LED更新関数 (非ブロッキング)
+static void update_led() {
+  uint32_t color = 0;
+  
+  switch (current_led_state) {
+    case LED_DISCONNECT:
+      color = neopixel.Color(50, 0, 0); // 赤
+      break;
+    case LED_IDLE:
+      color = neopixel.Color(0, 0, 50); // 青
+      break;
+    case LED_ACTIVE:
+      color = neopixel.Color(0, 50, 0); // 緑
+      break;
+    case LED_ERROR:
+      // 赤点滅 (100ms周期)
+      if ((millis() / 100) % 2 == 0) color = neopixel.Color(100, 0, 0);
+      else color = 0;
+      break;
+  }
+  neopixel.setPixelColor(0, color);
+  neopixel.show();
+}
+
 // プロトコル解析関数
 static void parse_protocol_line(char* line) {
-  // 簡易チェック: 文字列が短すぎる場合は無視
-  // "0000 08..." 最低でもこれくらいの長さはあるはず
   if (strlen(line) < 4) return;
-
   char* p = line;
   
-  // 1: Buttons (4 hex chars)
-  // 下位2bit: 0=RightStick, 1=LeftStick の有効フラグ
-  // 上位14bit: ボタンデータ
+  // デバッグ用: 受信した生データをシリアルに出力 (コメントアウトしてもOK)
+  // Serial.printf("RX: %s\n", line);
+
+  // 1: Buttons
   uint16_t raw_btns = (uint16_t)strtoul(p, &p, 16);
   while (*p == ' ') p++;
   
+  // 2: Hat
   uint8_t hat = (uint8_t)strtoul(p, &p, 16);
   while (*p == ' ') p++;
+  
+  // 3-6: Sticks
   uint8_t lx = (uint8_t)strtoul(p, &p, 16);
   while (*p == ' ') p++;
   uint8_t ly = (uint8_t)strtoul(p, &p, 16);
@@ -175,21 +260,15 @@ static void parse_protocol_line(char* line) {
   bool use_right = raw_btns & 0x01;
   bool use_left  = raw_btns & 0x02;
 
-  // 左スティック処理
   if (use_left) {
-    gp_report.lx = lx;
-    gp_report.ly = ly;
+    gp_report.lx = lx; gp_report.ly = ly;
   } else {
-    gp_report.lx = 0x80; // Center
-    gp_report.ly = 0x80; // Center
+    gp_report.lx = 0x80; gp_report.ly = 0x80;
   }
 
-  // 右スティック処理
   if (use_right) {
-    gp_report.rx = rx;
-    gp_report.ry = ry;
+    gp_report.rx = rx; gp_report.ry = ry;
   } else {
-    gp_report.rx = 0x80; // Center
-    gp_report.ry = 0x80; // Center
+    gp_report.rx = 0x80; gp_report.ry = 0x80;
   }
 }
