@@ -164,35 +164,12 @@ self.wait(0.5)
 self.keys.ser.ser.write(b'"Hello\n')
 ```
 
-### [Tips] Keys.py を拡張して便利に使う (上級者向け)
+### [Tips] Python 側での便利な呼び出し方
 
-毎回 `ser.write` を書くのが面倒な場合、Poke-Controller 側の `Commands/Keys.py` に以下のメソッドを追加すると便利です。
-メソッド名を `type_string` など独自の名前にすることで、他のコントローラー使用時への影響を防げます。
+Poke-Controller の標準ライブラリ (`Keys.py`) を少し拡張するだけで、スクリプトから `self.keys.type_string("Hello")` のように簡単に呼び出せるようになります。
 
-**追加場所**: `Keys.py` の `KeyPress` クラス内
-
-```python
-    # RP2040-Zero v1.3.3 専用: キーボード文字列入力
-    def type_string(self, text):
-        import time
-        # 1. 送信用のシリアルオブジェクトを取得 ('Sender'ラッパー対策)
-        serial_obj = self.ser
-        if hasattr(self.ser, 'ser'):
-            serial_obj = self.ser.ser
-            
-        # 2. 入力モード対策（全角/半角キー送信）
-        serial_obj.write(b'Key 35\n')
-        time.sleep(0.5)
-
-        # 3. 文字列送信
-        cmd = f'"{text}\n'.encode('utf-8')
-        serial_obj.write(cmd)
-```
-
-**使い方 (Pythonスクリプト)**:
-```python
-self.keys.type_string("Hello")
-```
+本リポジトリの **`Python_Extensions`** フォルダに、導入手順と修正済みファイルを用意しています。
+詳しくは [Python_Extensions/README.md](Python_Extensions/README.md) を参照してください。
 
 ---
 

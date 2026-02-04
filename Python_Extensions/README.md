@@ -44,3 +44,25 @@ class MyMacro(PythonCommand):
         # 続きの入力
         self.keys.type_string("World")
 ```
+
+## 上級者向け: 手動で変更する場合
+
+もし既存の `Keys.py` を上書きしたくない場合は、ご自身の `Commands/Keys.py` (KeyPressクラス内) に以下のコードを手動で追記してください。
+
+```python
+    # RP2040-Zero v1.3.3 専用: キーボード文字列入力
+    def type_string(self, text):
+        import time
+        # 1. 送信用のシリアルオブジェクトを取得 ('Sender'ラッパー対策)
+        serial_obj = self.ser
+        if hasattr(self.ser, 'ser'):
+            serial_obj = self.ser.ser
+            
+        # 2. 入力モード対策（全角/半角キー送信）
+        serial_obj.write(b'Key 35\n')
+        time.sleep(0.5)
+
+        # 3. 文字列送信
+        cmd = f'"{text}\n'.encode('utf-8')
+        serial_obj.write(cmd)
+```
