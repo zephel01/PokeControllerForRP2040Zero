@@ -174,8 +174,11 @@ void loop() {
       current_led_state = is_mounted ? LED_IDLE : LED_DISCONNECT;
     }
   } 
+  /* 
   else if (millis() - last_command_ms > 250) {
     // タイムアウト (通信なし)
+    // 注意: Modified-Extension版など、状態変化時のみパケットを送るPC側プログラムを使用する場合、
+    // ここが有効だと「押しっぱなし」の途中で勝手にニュートラルに戻ってしまいます。
     if (gp_report.buttons != 0 || gp_report.hat != 0x08) {
        Serial.println("Timeout: Resetting to neutral");
        gp_report.buttons = 0;
@@ -194,6 +197,7 @@ void loop() {
         current_led_state = LED_DISCONNECT;
     }
   }
+  */
 
   update_led();
 
