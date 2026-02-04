@@ -66,3 +66,17 @@ class MyMacro(PythonCommand):
         cmd = f'"{text}\n'.encode('utf-8')
         serial_obj.write(cmd)
 ```
+
+## その他: Keys.py を拡張せずに直接書く場合
+
+拡張ファイルを使わず、スクリプト内で直接コマンドを送ることも可能です（コードが少し長くなります）。
+
+```python
+# 1. 全角/半角キー (0x35) を送って、強制的に半角英数モードにする
+# ※ self.keys.ser.ser が実体のシリアルオブジェクトの場合が多いです
+self.keys.ser.ser.write(b'Key 35\n')
+self.wait(0.5)
+
+# 2. 文字列を入力
+self.keys.ser.ser.write(b'"Hello\n')
+```

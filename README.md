@@ -152,24 +152,21 @@ Switch のニックネーム入力画面や、チャット画面などで文字�
 ### [重要] 日本語入力モードの対策
 
 Switch のキーボード画面が「日本語入力（ローマ字入力）」になっていると、英字コマンドを送っても正しく入力されない場合があります。
-文字入力を始める前に、**入力モード切替キー** を送ることで回避できます。
+これを回避するには、文字入力の前に **入力モード切替キー** (全角/半角キー等) を送る必要があります。
 
-```python
-# Pythonスクリプト例
-# 1. 全角/半角キー (0x35) を送って、強制的に半角英数モードにする
-self.keys.ser.ser.write(b'Key 35\n')
-self.wait(0.5)
-
-# 2. 文字列を入力
-self.keys.ser.ser.write(b'"Hello\n')
-```
+**修正済みの Keys.py を使用してください**
+本リポジトリ同梱の `Python_Extensions` フォルダにある修正ファイルを使用すると、この対策が自動的に行われます。
+詳しくは [Python_Extensions/README.md](Python_Extensions/README.md) を参照してください。
 
 ### [Tips] Python 側での便利な呼び出し方
 
-Poke-Controller の標準ライブラリ (`Keys.py`) を少し拡張するだけで、スクリプトから `self.keys.type_string("Hello")` のように簡単に呼び出せるようになります。
+上記 `Python_Extensions` を導入すると、スクリプトから以下のように簡単に呼び出せるようになります。
 
-本リポジトリの **`Python_Extensions`** フォルダに、導入手順と修正済みファイルを用意しています。
-詳しくは [Python_Extensions/README.md](Python_Extensions/README.md) を参照してください。
+```python
+self.keys.type_string("Hello")
+```
+
+導入手順と詳細は、[Python_Extensions/README.md](Python_Extensions/README.md) を参照してください。
 
 ---
 
