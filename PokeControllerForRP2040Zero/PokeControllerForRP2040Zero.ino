@@ -283,23 +283,34 @@ static void parse_protocol_line(char* line) {
   while (*p == ' ') p++;
   uint8_t ry = (uint8_t)strtoul(p, &p, 16);
 
-  // ボタンデータを2bit右にシフトして元の位置に戻す
+  // スティック有効フラグ（NX/PokeCon仕様）
+  bool use_right = raw_btns & 0x01; // bit0: 右スティック有効
+  bool use_left  = raw_btns & 0x02; // bit1: 左スティック有効
+
+  // ボタン実データ (上位14bit)
   gp_report.buttons = raw_btns >> 2;
   gp_report.hat = hat;
 
-  // スティックの有効/無効フラグを判定
-  bool use_right = raw_btns & 0x01;
-  bool use_left  = raw_btns & 0x02;
-
-  if (use_left) {
+  /**
+   * スティック座標の割り当てロジック (CH55x / NX互換)
+   * PC側は「有効なスティックの分だけ」座標を詰めて送ることがあるため、
+   * フラグの状態に応じてパースした値(lx, ly, rx, ry)の適用先を切り替える。
+   */
+  if (use_left && use_right) {
+    // 両方有効：パースした順に適用 (LX, LY, RX, RY)
     gp_report.lx = lx; gp_report.ly = ly;
-  } else {
-    gp_report.lx = 0x80; gp_report.ly = 0x80;
-  }
-
-  if (use_right) {
     gp_report.rx = rx; gp_report.ry = ry;
+  } else if (use_right) {
+    // 右のみ有効：最初にパースされたペアを「右スティック」に適用
+    gp_report.lx = 0x80; gp_report.ly = 0x80;
+    gp_report.rx = lx;   gp_report.ry = ly;
+  } else if (use_left) {
+    // 左のみ有効：最初にパースされたペアを「左スティック」に適用
+    gp_report.lx = lx;   gp_report.ly = ly;
+    gp_report.rx = 0x80; gp_report.ry = 0x80;
   } else {
+    // 両方無効：ニュートラル
+    gp_report.lx = 0x80; gp_report.ly = 0x80;
     gp_report.rx = 0x80; gp_report.ry = 0x80;
   }
 }
