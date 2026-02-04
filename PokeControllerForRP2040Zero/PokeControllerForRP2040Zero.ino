@@ -5,6 +5,7 @@
 
 /**
  * RP2040-Zero Switch Controller
+ * v1.3.2: Stick logic refined (Previous value maintenance & 'end' cmd)
  * v1.3.1: Disabled safety timeout for event-driven PC apps
  * v1.3.0: Debugging (CDC), Recovery, Error LED
  */
@@ -251,10 +252,19 @@ static bool is_hex_char(char c) {
 
 // プロトコル解析関数
 static void parse_protocol_line(char* line) {
-  if (strlen(line) < 4) return;
+  if (strlen(line) < 3) return;
   
+  // 'end' コマンド対応: 全てをニュートラルに戻す
+  if (strncmp(line, "end", 3) == 0) {
+    gp_report.buttons = 0;
+    gp_report.hat = 0x08;
+    gp_report.lx = 0x80; gp_report.ly = 0x80;
+    gp_report.rx = 0x80; gp_report.ry = 0x80;
+    Serial.println("Command: end (Reset to neutral)");
+    return;
+  }
+
   // 拡張コマンド対応: 先頭が16進数でない場合は無視する
-  // Poke-Controller Modified Extensionなどが特殊コマンド(M=...)などを送ってくる場合の対策
   if (!is_hex_char(line[0])) {
     Serial.print("Ignored Unknown Cmd: ");
     Serial.println(line);
@@ -263,9 +273,6 @@ static void parse_protocol_line(char* line) {
 
   char* p = line;
   
-  // デバッグ用: 受信した生データをシリアルに出力 (コメントアウトしてもOK)
-  // Serial.printf("RX: %s\n", line);
-
   // 1: Buttons
   uint16_t raw_btns = (uint16_t)strtoul(p, &p, 16);
   while (*p == ' ') p++;
@@ -274,7 +281,7 @@ static void parse_protocol_line(char* line) {
   uint8_t hat = (uint8_t)strtoul(p, &p, 16);
   while (*p == ' ') p++;
   
-  // 3-6: Sticks
+  // 3-6: Sticks (パースだけして一旦変数へ)
   uint8_t lx = (uint8_t)strtoul(p, &p, 16);
   while (*p == ' ') p++;
   uint8_t ly = (uint8_t)strtoul(p, &p, 16);
@@ -292,25 +299,19 @@ static void parse_protocol_line(char* line) {
   gp_report.hat = hat;
 
   /**
-   * スティック座標の割り当てロジック (CH55x / NX互換)
-   * PC側は「有効なスティックの分だけ」座標を詰めて送ることがあるため、
-   * フラグの状態に応じてパースした値(lx, ly, rx, ry)の適用先を切り替える。
+   * スティック座標の割り当てロジック (前回値保持対応 / CH55x・Pico版互換)
+   * フラグが立っていないスティックは gp_report の値を書き換えず、前回値を維持する。
+   * 右のみ有効な場合は最初に読み込んだペア(lx, ly)を右スティックに適用する。
    */
   if (use_left && use_right) {
-    // 両方有効：パースした順に適用 (LX, LY, RX, RY)
+    // 両方有効
     gp_report.lx = lx; gp_report.ly = ly;
     gp_report.rx = rx; gp_report.ry = ry;
   } else if (use_right) {
-    // 右のみ有効：最初にパースされたペアを「右スティック」に適用
-    gp_report.lx = 0x80; gp_report.ly = 0x80;
-    gp_report.rx = lx;   gp_report.ry = ly;
+    // 右のみ有効：最初の座標ペアを右に適用
+    gp_report.rx = lx; gp_report.ry = ly;
   } else if (use_left) {
-    // 左のみ有効：最初にパースされたペアを「左スティック」に適用
-    gp_report.lx = lx;   gp_report.ly = ly;
-    gp_report.rx = 0x80; gp_report.ry = 0x80;
-  } else {
-    // 両方無効：ニュートラル
-    gp_report.lx = 0x80; gp_report.ly = 0x80;
-    gp_report.rx = 0x80; gp_report.ry = 0x80;
+    // 左のみ有効：最初の座標ペアを左に適用
+    gp_report.lx = lx; gp_report.ly = ly;
   }
 }
