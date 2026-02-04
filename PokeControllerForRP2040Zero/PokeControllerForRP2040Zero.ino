@@ -5,6 +5,7 @@
 
 /**
  * RP2040-Zero Switch Controller
+ * v1.3.1: Disabled safety timeout for event-driven PC apps
  * v1.3.0: Debugging (CDC), Recovery, Error LED
  */
 

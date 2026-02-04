@@ -37,7 +37,7 @@ PC上の「Poke-Controller Modified」等のツールから UART 経由でコマ
    - PC に「RPI-RP2」という名前のドライブとして認識されます。
 
 2. **ファームウェアを書き込む**:
-   - [Releases ページ](https://github.com/zephel01/PokeControllerForRP2040Zero/releases/tag/v1.3.0) から `PokeControllerForRP2040Zero_RP2040Zero_v1.3.0.uf2` をダウンロードします。
+   - [Releases ページ](https://github.com/zephel01/PokeControllerForRP2040Zero/releases/tag/v1.3.1) から `PokeControllerForRP2040Zero_RP2040Zero_v1.3.1.uf2` をダウンロードします。
    - ダウンロードした `.uf2` ファイルを、先ほどの「RPI-RP2」ドライブにドラッグ＆ドロップします。
 
 3. **完了**:
@@ -143,7 +143,7 @@ PC に接続すると、合計 2つの COM ポートが見えるようになり�
 
 ## ドキュメント
 
-本プロジェクトの詳細な解説や、v1.3.0 での安定化設計については以下の記事を参照してください。
+本プロジェクトの詳細な解説や、安定化設計については以下の記事を参照してください。
 
 - **[🕹️ PokeControllerForRP2040Zero 完全解説【決定版】](https://note.com/zephel01/n/ne5a9fec85f12)**
   - アーキテクチャ、TinyUSB の設定、プロトコル解析ロジックなど、仕組み全体の詳細な解説です。
