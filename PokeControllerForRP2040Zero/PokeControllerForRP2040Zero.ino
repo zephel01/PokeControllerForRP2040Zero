@@ -136,27 +136,38 @@ void loop() {
   }
   was_mounted = is_mounted;
 
-  int available_bytes = Serial1.available();
-  while (available_bytes > 0) {
-    char c = (char)Serial1.read();
-    available_bytes--;
+  // 1. UART & USB 受信処理
+  // ポートをまたいでパケットが分割されることはない前提で、
+  // どちらかデータがある方を優先してバッファに取り込む簡易実装
+  Stream* active_serial = nullptr;
+  
+  if (Serial.available()) {
+    active_serial = &Serial;
+  } else if (Serial1.available()) {
+    active_serial = &Serial1;
+  }
 
-    if (c == '\n' || c == '\r') {
-      if (rx_index > 0) {
-        rx_buffer[rx_index] = '\0';
-        parse_protocol_line(rx_buffer);
-        rx_index = 0; 
-        last_command_ms = millis();
-        current_led_state = LED_ACTIVE;
-      }
-    } else {
-      if (rx_index < RX_BUFFER_SIZE - 1) {
-        rx_buffer[rx_index++] = c;
+  if (active_serial) {
+    while (active_serial->available() > 0) {
+      char c = (char)active_serial->read();
+      
+      if (c == '\n' || c == '\r') {
+        if (rx_index > 0) {
+          rx_buffer[rx_index] = '\0';
+          parse_protocol_line(rx_buffer);
+          rx_index = 0; 
+          last_command_ms = millis();
+          current_led_state = LED_ACTIVE;
+        }
       } else {
-        Serial.println("Error: RX Buffer Overflow!");
-        rx_index = 0;
-        current_led_state = LED_ERROR;
-        error_blink_start = millis();
+        if (rx_index < RX_BUFFER_SIZE - 1) {
+          rx_buffer[rx_index++] = c;
+        } else {
+          Serial.println("Error: RX Buffer Overflow!");
+          rx_index = 0;
+          current_led_state = LED_ERROR;
+          error_blink_start = millis();
+        }
       }
     }
   }
@@ -227,9 +238,8 @@ static void parse_protocol_line(char* line) {
   if (line[0] == '"') {
     Serial.printf("Keyboard: Typing string [%s]\n", &line[1]);
     for (int i = 1; line[i] != '\0'; i++) {
-        uint8_t k = ascii_to_hid(line[i]);
-        if (k) {
-            usb_keyboard.keyboardPress(0, k);
+        // ライブラリの keyboardPress は ASCII文字を受け取る仕様のため、そのまま渡す
+        if (usb_keyboard.keyboardPress(0, line[i])) {
             delay(20);
             usb_keyboard.keyboardRelease(0);
             delay(20);
@@ -238,22 +248,25 @@ static void parse_protocol_line(char* line) {
     return;
   }
 
-  // 2. 個別キー操作: Key/Press/Release
+  // 2. 個別キー操作: Key/Press/Release (Raw HID Keycode)
   if (strncmp(line, "Key ", 4) == 0) {
     uint8_t k = (uint8_t)strtoul(&line[4], NULL, 16);
-    usb_keyboard.keyboardPress(0, k);
+    uint8_t keys[6] = { k, 0, 0, 0, 0, 0 };
+    usb_keyboard.keyboardReport(0, 0, keys); // Start Press
     delay(20);
-    usb_keyboard.keyboardRelease(0);
+    usb_keyboard.keyboardRelease(0);         // Release
     return;
   }
   if (strncmp(line, "Press ", 6) == 0) {
     uint8_t k = (uint8_t)strtoul(&line[6], NULL, 16);
-    usb_keyboard.keyboardPress(0, k);
+    uint8_t keys[6] = { k, 0, 0, 0, 0, 0 };
+    usb_keyboard.keyboardReport(0, 0, keys);
     return;
   }
   if (strncmp(line, "Release ", 8) == 0) {
-    uint8_t k = (uint8_t)strtoul(&line[8], NULL, 16);
-    usb_keyboard.keyboardRelease(0); // 標準キーボードは全離し、特定キー離しはキーコード管理が必要
+    // 特定キーのReleaseは管理が複雑なため、現在はRelease Allのみとする
+    // もし特定キーだけ離したい場合は現在のReport状態を管理する必要がある
+    usb_keyboard.keyboardRelease(0); 
     return;
   }
 
