@@ -5,6 +5,7 @@
 
 /**
  * RP2040-Zero Switch Controller
+ * v1.3.3: Integrated USB Keyboard HID (Supports "String, Key, Press, Release)
  * v1.3.2: Stick logic refined (Previous value maintenance & 'end' cmd)
  * v1.3.1: Disabled safety timeout for event-driven PC apps
  * v1.3.0: Debugging (CDC), Recovery, Error LED
@@ -34,13 +35,14 @@ static int  rx_index = 0;
 static uint32_t last_command_ms = 0;
 
 // タイミング微調整 (マイクロ秒)
-// 環境によって Switch が入力を取りこぼす場合、この値を増やしてみてください (例: 500 - 4000)
 #define REPORT_DELAY_US 0  
 
 // ==========================================
-// 2) HID レポート設定
+// 2) HID レポート設定 (Gamepad & Keyboard)
 // ==========================================
-uint8_t const hid_report_desc[] = {
+
+// Switch Gamepad (HORIPAD) Descriptor
+uint8_t const gamepad_report_desc[] = {
   0x05, 0x01, 0x09, 0x05, 0xA1, 0x01, 0x15, 0x00, 0x25, 0x01, 0x35, 0x00, 0x45, 0x01, 0x75, 0x01,
   0x95, 0x10, 0x05, 0x09, 0x19, 0x01, 0x29, 0x10, 0x81, 0x02, 0x05, 0x01, 0x25, 0x07, 0x46, 0x3B,
   0x01, 0x75, 0x04, 0x95, 0x01, 0x65, 0x14, 0x09, 0x39, 0x81, 0x42, 0x65, 0x00, 0x95, 0x01, 0x81,
@@ -48,7 +50,13 @@ uint8_t const hid_report_desc[] = {
   0x08, 0x95, 0x04, 0x81, 0x02, 0x06, 0x00, 0xFF, 0x09, 0x20, 0x95, 0x01, 0x81, 0x02, 0xC0
 };
 
-Adafruit_USBD_HID usb_hid;
+// Standard Keyboard Descriptor
+uint8_t const keyboard_report_desc[] = {
+  TUD_HID_REPORT_DESC_KEYBOARD()
+};
+
+Adafruit_USBD_HID usb_gamepad;
+Adafruit_USBD_HID usb_keyboard;
 
 typedef struct TU_ATTR_PACKED {
   uint16_t buttons;
@@ -66,6 +74,7 @@ static switch_report_t gp_report = {0, 0x08, 0x80, 0x80, 0x80, 0x80, 0x00};
 static void parse_protocol_line(char* line);
 static void update_led();
 static bool is_hex_char(char c);
+static uint8_t ascii_to_hid(char c);
 
 // リカバリ判定用
 static bool was_mounted = false;
@@ -78,7 +87,6 @@ void setup() {
   watchdog_enable(2000, 1);
 
   // USB CDC (デバッグ用シリアル) 開始
-  // これにより PC 上でシリアルモニタを開くとログが見れます
   Serial.begin(115200);
 
   // USB Device 設定
@@ -87,9 +95,15 @@ void setup() {
   TinyUSBDevice.setManufacturerDescriptor("HORI");
   TinyUSBDevice.setProductDescriptor("HORIPAD");
 
-  usb_hid.setReportDescriptor(hid_report_desc, sizeof(hid_report_desc));
-  usb_hid.setPollInterval(1);
-  usb_hid.begin();
+  // Gamepad インスタンス開始
+  usb_gamepad.setReportDescriptor(gamepad_report_desc, sizeof(gamepad_report_desc));
+  usb_gamepad.setPollInterval(1);
+  usb_gamepad.begin();
+
+  // Keyboard インスタンス開始
+  usb_keyboard.setReportDescriptor(keyboard_report_desc, sizeof(keyboard_report_desc));
+  usb_keyboard.setPollInterval(1);
+  usb_keyboard.begin();
 
   if (!TinyUSBDevice.isInitialized()) {
     TinyUSBDevice.begin();
@@ -112,27 +126,16 @@ void setup() {
 void loop() {
   watchdog_update();
 
-  // ------------------------------------------
-  // 0. USB 接続状態監視 & リカバリ
-  // ------------------------------------------
   bool is_mounted = TinyUSBDevice.mounted();
   if (was_mounted && !is_mounted) {
-    // 切断された瞬間
-    Serial.println("USB Unmounted (Disconnected)");
-    // 安全のため入力をリセット
     gp_report.buttons = 0;
     gp_report.hat = 0x08;
     current_led_state = LED_DISCONNECT;
   } else if (!was_mounted && is_mounted) {
-    // 接続された瞬間
-    Serial.println("USB Mounted (Connected)");
     current_led_state = LED_IDLE;
   }
   was_mounted = is_mounted;
 
-  // ------------------------------------------
-  // 1. UART 受信処理 (デバッグ出力付き)
-  // ------------------------------------------
   int available_bytes = Serial1.available();
   while (available_bytes > 0) {
     char c = (char)Serial1.read();
@@ -141,12 +144,8 @@ void loop() {
     if (c == '\n' || c == '\r') {
       if (rx_index > 0) {
         rx_buffer[rx_index] = '\0';
-        
-        // パース処理
         parse_protocol_line(rx_buffer);
         rx_index = 0; 
-        
-        // コマンド受信時のみ更新 (parse_protocol_line内で成功判定しても良い)
         last_command_ms = millis();
         current_led_state = LED_ACTIVE;
       }
@@ -154,67 +153,33 @@ void loop() {
       if (rx_index < RX_BUFFER_SIZE - 1) {
         rx_buffer[rx_index++] = c;
       } else {
-        // オーバーフロー発生
         Serial.println("Error: RX Buffer Overflow!");
         rx_index = 0;
-        
-        // エラーLED点滅開始 (500ms継続)
         current_led_state = LED_ERROR;
         error_blink_start = millis();
       }
     }
   }
 
-  // ------------------------------------------
-  // 2. 安全装置 & LED制御
-  // ------------------------------------------
-  
-  // エラー表示中はタイムアウト判定をスキップして点滅優先
   if (current_led_state == LED_ERROR) {
     if (millis() - error_blink_start > 500) {
-      // エラー表示終了後は接続状態に合わせて戻る
       current_led_state = is_mounted ? LED_IDLE : LED_DISCONNECT;
     }
   } 
-  /* 
-  else if (millis() - last_command_ms > 250) {
-    // タイムアウト (通信なし)
-    // 注意: Modified-Extension版など、状態変化時のみパケットを送るPC側プログラムを使用する場合、
-    // ここが有効だと「押しっぱなし」の途中で勝手にニュートラルに戻ってしまいます。
-    if (gp_report.buttons != 0 || gp_report.hat != 0x08) {
-       Serial.println("Timeout: Resetting to neutral");
-       gp_report.buttons = 0;
-       gp_report.hat = 0x08; 
-       gp_report.lx = 0x80; gp_report.ly = 0x80;
-       gp_report.rx = 0x80; gp_report.ry = 0x80;
-       rx_index = 0; 
-    }
-    
-    // 接続状態に応じてLEDを戻す (アクティブ状態からの復帰)
-    if (current_led_state == LED_ACTIVE) {
-        current_led_state = is_mounted ? LED_IDLE : LED_DISCONNECT;
-    }
-    // 未接続なら赤のままにする
-    else if (!is_mounted) {
-        current_led_state = LED_DISCONNECT;
-    }
-  }
+  // Safety timeout is currently disabled by user (v1.3.1 - v1.3.2)
+  /*
+  else if (millis() - last_command_ms > 250) { ... }
   */
 
   update_led();
 
-  // ------------------------------------------
-  // 3. HID 送信
-  // ------------------------------------------
+  // Gamepad Report 送信
   static uint32_t last_ms = 0;
   uint32_t now = millis();
   if (now - last_ms >= 8) {
     last_ms = now;
-    if (is_mounted && usb_hid.ready()) {
-      usb_hid.sendReport(0, &gp_report, sizeof(gp_report));
-      
-      // タイミング微調整 (delayMicroseconds)
-      // Switch側が取りこぼす場合の調整弁
+    if (is_mounted && usb_gamepad.ready()) {
+      usb_gamepad.sendReport(0, &gp_report, sizeof(gp_report));
       #if REPORT_DELAY_US > 0
         delayMicroseconds(REPORT_DELAY_US);
       #endif
@@ -225,19 +190,11 @@ void loop() {
 // LED更新関数 (非ブロッキング)
 static void update_led() {
   uint32_t color = 0;
-  
   switch (current_led_state) {
-    case LED_DISCONNECT:
-      color = neopixel.Color(50, 0, 0); // 赤
-      break;
-    case LED_IDLE:
-      color = neopixel.Color(0, 0, 50); // 青
-      break;
-    case LED_ACTIVE:
-      color = neopixel.Color(0, 50, 0); // 緑
-      break;
+    case LED_DISCONNECT: color = neopixel.Color(50, 0, 0); break;
+    case LED_IDLE:       color = neopixel.Color(0, 0, 50); break;
+    case LED_ACTIVE:     color = neopixel.Color(0, 50, 0); break;
     case LED_ERROR:
-      // 赤点滅 (100ms周期)
       if ((millis() / 100) % 2 == 0) color = neopixel.Color(100, 0, 0);
       else color = 0;
       break;
@@ -250,38 +207,74 @@ static bool is_hex_char(char c) {
   return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
 }
 
+// ASCII -> HID Keycode (簡易版)
+static uint8_t ascii_to_hid(char c) {
+  if (c >= 'a' && c <= 'z') return HID_KEY_A + (c - 'a');
+  if (c >= 'A' && c <= 'Z') return HID_KEY_A + (c - 'A');
+  if (c >= '1' && c <= '9') return HID_KEY_1 + (c - '1');
+  if (c == '0') return HID_KEY_0;
+  if (c == ' ') return HID_KEY_SPACE;
+  if (c == '-') return HID_KEY_MINUS;
+  if (c == '.') return HID_KEY_PERIOD;
+  return 0;
+}
+
 // プロトコル解析関数
 static void parse_protocol_line(char* line) {
-  if (strlen(line) < 3) return;
+  if (strlen(line) < 1) return;
   
-  // 'end' コマンド対応: 全てをニュートラルに戻す
+  // 1. 文字列タイピング: "ABCDE
+  if (line[0] == '"') {
+    Serial.printf("Keyboard: Typing string [%s]\n", &line[1]);
+    for (int i = 1; line[i] != '\0'; i++) {
+        uint8_t k = ascii_to_hid(line[i]);
+        if (k) {
+            usb_keyboard.keyboardPress(0, k);
+            delay(20);
+            usb_keyboard.keyboardRelease(0);
+            delay(20);
+        }
+    }
+    return;
+  }
+
+  // 2. 個別キー操作: Key/Press/Release
+  if (strncmp(line, "Key ", 4) == 0) {
+    uint8_t k = (uint8_t)strtoul(&line[4], NULL, 16);
+    usb_keyboard.keyboardPress(0, k);
+    delay(20);
+    usb_keyboard.keyboardRelease(0);
+    return;
+  }
+  if (strncmp(line, "Press ", 6) == 0) {
+    uint8_t k = (uint8_t)strtoul(&line[6], NULL, 16);
+    usb_keyboard.keyboardPress(0, k);
+    return;
+  }
+  if (strncmp(line, "Release ", 8) == 0) {
+    uint8_t k = (uint8_t)strtoul(&line[8], NULL, 16);
+    usb_keyboard.keyboardRelease(0); // 標準キーボードは全離し、特定キー離しはキーコード管理が必要
+    return;
+  }
+
+  // 3. 'end' コマンド: 全てをニュートラルに戻す
   if (strncmp(line, "end", 3) == 0) {
-    gp_report.buttons = 0;
-    gp_report.hat = 0x08;
+    gp_report.buttons = 0; gp_report.hat = 0x08;
     gp_report.lx = 0x80; gp_report.ly = 0x80;
     gp_report.rx = 0x80; gp_report.ry = 0x80;
-    Serial.println("Command: end (Reset to neutral)");
+    usb_keyboard.keyboardRelease(0);
+    Serial.println("Command: end (Reset all)");
     return;
   }
 
-  // 拡張コマンド対応: 先頭が16進数でない場合は無視する
-  if (!is_hex_char(line[0])) {
-    Serial.print("Ignored Unknown Cmd: ");
-    Serial.println(line);
-    return;
-  }
+  // 4. 標準 Gamepad プロトコル (HEX)
+  if (!is_hex_char(line[0])) return;
 
   char* p = line;
-  
-  // 1: Buttons
   uint16_t raw_btns = (uint16_t)strtoul(p, &p, 16);
   while (*p == ' ') p++;
-  
-  // 2: Hat
   uint8_t hat = (uint8_t)strtoul(p, &p, 16);
   while (*p == ' ') p++;
-  
-  // 3-6: Sticks (パースだけして一旦変数へ)
   uint8_t lx = (uint8_t)strtoul(p, &p, 16);
   while (*p == ' ') p++;
   uint8_t ly = (uint8_t)strtoul(p, &p, 16);
@@ -290,28 +283,17 @@ static void parse_protocol_line(char* line) {
   while (*p == ' ') p++;
   uint8_t ry = (uint8_t)strtoul(p, &p, 16);
 
-  // スティック有効フラグ（NX/PokeCon仕様）
-  bool use_right = raw_btns & 0x01; // bit0: 右スティック有効
-  bool use_left  = raw_btns & 0x02; // bit1: 左スティック有効
-
-  // ボタン実データ (上位14bit)
+  bool use_right = raw_btns & 0x01;
+  bool use_left  = raw_btns & 0x02;
   gp_report.buttons = raw_btns >> 2;
   gp_report.hat = hat;
 
-  /**
-   * スティック座標の割り当てロジック (前回値保持対応 / CH55x・Pico版互換)
-   * フラグが立っていないスティックは gp_report の値を書き換えず、前回値を維持する。
-   * 右のみ有効な場合は最初に読み込んだペア(lx, ly)を右スティックに適用する。
-   */
   if (use_left && use_right) {
-    // 両方有効
     gp_report.lx = lx; gp_report.ly = ly;
     gp_report.rx = rx; gp_report.ry = ry;
   } else if (use_right) {
-    // 右のみ有効：最初の座標ペアを右に適用
     gp_report.rx = lx; gp_report.ry = ly;
   } else if (use_left) {
-    // 左のみ有効：最初の座標ペアを左に適用
     gp_report.lx = lx; gp_report.ly = ly;
   }
 }
