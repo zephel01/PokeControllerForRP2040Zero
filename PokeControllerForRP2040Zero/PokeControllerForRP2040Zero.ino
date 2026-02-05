@@ -5,6 +5,7 @@
 
 /**
  * RP2040-Zero Switch Controller
+ * v1.3.4: Stability & reliability enhancements (Watchdog, UART recovery, Error checking)
  * v1.3.3: Integrated USB Keyboard HID (Supports "String, Key, Press, Release)
  * v1.3.2: Stick logic refined (Previous value maintenance & 'end' cmd)
  * v1.3.1: Disabled safety timeout for event-driven PC apps
