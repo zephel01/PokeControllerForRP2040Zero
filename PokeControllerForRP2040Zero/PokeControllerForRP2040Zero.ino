@@ -12,6 +12,7 @@
 
 /**
  * RP2040-Zero Switch Controller
+ * v1.4.1: Unified protocol with Pico/Leonardo (16bit button data, always update both sticks)
  * v1.4.0: Preset Commands, Date/Year Change, High-Level API, Japanese Keyboard Support
  * v1.3.5: Support Communication Activity LED (Blinking green)
  * v1.3.4: Stability & reliability enhancements (Watchdog, UART recovery, Error checking)
@@ -348,17 +349,11 @@ static void parse_protocol_line(char* line) {
   while (*p == ' ') p++;
   uint8_t ry = (uint8_t)strtoul(p, &p, 16);
 
-  bool use_right = raw_btns & 0x01;
-  bool use_left  = raw_btns & 0x02;
-  gp_report.buttons = raw_btns >> 2;
+  // v1.4.1: Pico/Leonardo版プロトコルに統合（16bit全てボタンデータ）
+  gp_report.buttons = raw_btns;
   gp_report.hat = hat;
-
-  if (use_left && use_right) {
-    gp_report.lx = lx; gp_report.ly = ly;
-    gp_report.rx = rx; gp_report.ry = ry;
-  } else if (use_right) {
-    gp_report.rx = lx; gp_report.ry = ly;
-  } else if (use_left) {
-    gp_report.lx = lx; gp_report.ly = ly;
-  }
+  gp_report.lx = lx;
+  gp_report.ly = ly;
+  gp_report.rx = rx;
+  gp_report.ry = ry;
 }
