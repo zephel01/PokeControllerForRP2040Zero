@@ -9,3 +9,4 @@ libraries/
 .DS_Store
 Thumbs.db
 result.md
+result_*.md
