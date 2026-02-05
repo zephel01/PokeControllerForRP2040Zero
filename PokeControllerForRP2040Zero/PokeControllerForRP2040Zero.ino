@@ -33,6 +33,7 @@ static constexpr uint32_t ERROR_RECOVERY_MS = 500;      // エラー表示時間
 static constexpr uint32_t GAMEPAD_REPORT_INTERVAL_MS = 8;
 static constexpr uint32_t USB_INIT_TIMEOUT_MS = 2000;
 static constexpr uint32_t KEY_TYPE_DELAY_MS = 20;
+static constexpr uint32_t LED_ACTIVE_MS = 50;           // コマンド受信時の点灯時間 (30->50msに微増)
 
 static constexpr int UART_TX_PIN = 0;
 static constexpr int UART_RX_PIN = 1;
@@ -203,6 +204,10 @@ void loop() {
       current_led_state = is_mounted ? LED_IDLE : LED_DISCONNECT;
     }
   } 
+  else if (current_led_state == LED_ACTIVE && (millis() - last_command_ms > LED_ACTIVE_MS)) {
+    // 通信LEDを一定時間で戻す (activity blink)
+    current_led_state = is_mounted ? LED_IDLE : LED_DISCONNECT;
+  }
   else if (ENABLE_SAFETY_TIMEOUT && (millis() - last_command_ms > COMMAND_TIMEOUT_MS)) {
     reset_gamepad_report();
     usb_keyboard.keyboardRelease(0);
@@ -227,8 +232,8 @@ static void update_led() {
   uint32_t color = 0;
   switch (current_led_state) {
     case LED_DISCONNECT: color = neopixel.Color(50, 0, 0); break;
-    case LED_IDLE:       color = neopixel.Color(0, 0, 50); break;
-    case LED_ACTIVE:     color = neopixel.Color(0, 50, 0); break;
+    case LED_IDLE:       color = neopixel.Color(0, 0, 10); break; // 待機中は暗い青 (50 -> 10)
+    case LED_ACTIVE:     color = neopixel.Color(0, 100, 0); break; // 通信中は明るい緑 (50 -> 100)
     case LED_ERROR:
       if ((millis() / 100) % 2 == 0) color = neopixel.Color(100, 0, 0);
       else color = 0;
