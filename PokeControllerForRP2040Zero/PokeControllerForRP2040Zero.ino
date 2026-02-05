@@ -3,8 +3,16 @@
 #include <Adafruit_NeoPixel.h>
 #include <hardware/watchdog.h>
 
+// v1.4.0 新機能インクルード
+#include "Common.h"
+#include "Presets.h"
+#include "DateChange.h"
+#include "HighLevelAPI.h"
+#include "JapaneseKeyboard.h"
+
 /**
  * RP2040-Zero Switch Controller
+ * v1.4.0: Preset Commands, Date/Year Change, High-Level API, Japanese Keyboard Support
  * v1.3.5: Support Communication Activity LED (Blinking green)
  * v1.3.4: Stability & reliability enhancements (Watchdog, UART recovery, Error checking)
  * v1.3.3: Integrated USB Keyboard HID (Supports "String, Key, Press, Release)
@@ -66,17 +74,8 @@ uint8_t const keyboard_report_desc[] = {
 Adafruit_USBD_HID usb_gamepad;
 Adafruit_USBD_HID usb_keyboard;
 
-typedef struct TU_ATTR_PACKED {
-  uint16_t buttons;
-  uint8_t  hat;
-  uint8_t  lx;
-  uint8_t  ly;
-  uint8_t  rx;
-  uint8_t  ry;
-  uint8_t  vendor;
-} switch_report_t;
-
-static switch_report_t gp_report = {0, 0x08, 0x80, 0x80, 0x80, 0x80, 0x00};
+// gp_reportの定義（Common.hで宣言、ここで定義・初期化）
+switch_report_t gp_report = {0, HAT_CENTER, STICK_CENTER, STICK_CENTER, STICK_CENTER, STICK_CENTER, 0x00};
 
 // 前方宣言
 static void parse_protocol_line(char* line);
@@ -84,17 +83,19 @@ static void update_led();
 static bool is_hex_char(char c);
 static uint8_t ascii_to_hid(char c);
 
+// v1.4.0: gp_reportは非staticとなり、他の.cppファイルからextern参照可能
+
 // リカバリ判定用
 static bool was_mounted = false;
 
 // Gamepadレポートの初期化
 static void reset_gamepad_report() {
   gp_report.buttons = 0;
-  gp_report.hat = 0x08;
-  gp_report.lx = 0x80;
-  gp_report.ly = 0x80;
-  gp_report.rx = 0x80;
-  gp_report.ry = 0x80;
+  gp_report.hat = HAT_CENTER;
+  gp_report.lx = STICK_CENTER;
+  gp_report.ly = STICK_CENTER;
+  gp_report.rx = STICK_CENTER;
+  gp_report.ry = STICK_CENTER;
   gp_report.vendor = 0x00;
 }
 
@@ -153,7 +154,7 @@ void loop() {
   bool is_mounted = TinyUSBDevice.mounted();
   if (was_mounted && !is_mounted) {
     gp_report.buttons = 0;
-    gp_report.hat = 0x08;
+    gp_report.hat = HAT_CENTER;
     current_led_state = LED_DISCONNECT;
   } else if (!was_mounted && is_mounted) {
     current_led_state = LED_IDLE;
@@ -217,6 +218,9 @@ void loop() {
 
   update_led();
 
+  // v1.4.0: プリセット状態更新
+  update_preset_state();
+
   // Gamepad Report 送信
   static uint32_t last_report_ms = 0;
   uint32_t now = millis();
@@ -263,18 +267,32 @@ static uint8_t ascii_to_hid(char c) {
 // プロトコル解析関数
 static void parse_protocol_line(char* line) {
   if (strlen(line) < 1) return;
-  
-  // 1. 文字列タイピング: "ABCDE
-  if (line[0] == '"') {
-    Serial.printf("Keyboard: Typing string [%s]\n", &line[1]);
-    for (int i = 1; line[i] != '\0'; i++) {
-        // ライブラリの keyboardPress は ASCII文字を受け取る仕様のため、そのまま渡す
-        if (usb_keyboard.keyboardPress(0, line[i])) {
-            delay(KEY_TYPE_DELAY_MS);
-            usb_keyboard.keyboardRelease(0);
-            delay(KEY_TYPE_DELAY_MS);
-        }
+
+  // ==================== v1.4.0: プリセットコマンド ====================
+  if (!is_hex_char(line[0])) {
+    // プリセットコマンド
+    parse_preset_command(line);
+
+    // 日付・年変更コマンド
+    DateChangeCommand date_cmd;
+    int years;
+    if (parse_date_command(line, &date_cmd)) {
+      execute_date_change(&date_cmd);
+      return;
     }
+    if (parse_year_command(line, &years)) {
+      execute_year_change(years);
+      return;
+    }
+
+    // 既存の特殊コマンドに該当しない場合はreturnしない
+    // 既存の"end"などの処理に続く
+  }
+
+  // 1. 文字列タイピング（v1.4.0: JIS対応版に更新）
+  if (line[0] == '"') {
+    Serial.printf("Keyboard: Typing JP string [%s]\n", &line[1]);
+    type_jp_string(&line[1]);
     return;
   }
 
