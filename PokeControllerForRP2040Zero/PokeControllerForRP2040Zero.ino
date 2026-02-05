@@ -23,8 +23,16 @@ static LedState current_led_state = LED_DISCONNECT;
 static uint32_t error_blink_start = 0; // エラー表示開始時刻
 
 // ==========================================
-// 1) UART 設定 & 受信バッファ
+// 1) 定数・タイミング設定 (安定性と保守性のための集約)
 // ==========================================
+static constexpr uint32_t WATCHDOG_TIMEOUT_MS = 10000;   // 10秒に延長
+static constexpr uint32_t COMMAND_TIMEOUT_MS = 250;     // 通信途絶判定
+static constexpr bool ENABLE_SAFETY_TIMEOUT = false;    // v1.3.1 - v1.3.2 準拠（必要に応じてtrue）
+static constexpr uint32_t ERROR_RECOVERY_MS = 500;      // エラー表示時間
+static constexpr uint32_t GAMEPAD_REPORT_INTERVAL_MS = 8;
+static constexpr uint32_t USB_INIT_TIMEOUT_MS = 2000;
+static constexpr uint32_t KEY_TYPE_DELAY_MS = 20;
+
 static constexpr int UART_TX_PIN = 0;
 static constexpr int UART_RX_PIN = 1;
 static constexpr uint32_t UART_BAUD = 115200; 
@@ -33,9 +41,6 @@ static constexpr uint32_t UART_BAUD = 115200;
 static char rx_buffer[RX_BUFFER_SIZE];
 static int  rx_index = 0;
 static uint32_t last_command_ms = 0;
-
-// タイミング微調整 (マイクロ秒)
-#define REPORT_DELAY_US 0  
 
 // ==========================================
 // 2) HID レポート設定 (Gamepad & Keyboard)
@@ -79,12 +84,23 @@ static uint8_t ascii_to_hid(char c);
 // リカバリ判定用
 static bool was_mounted = false;
 
+// Gamepadレポートの初期化
+static void reset_gamepad_report() {
+  gp_report.buttons = 0;
+  gp_report.hat = 0x08;
+  gp_report.lx = 0x80;
+  gp_report.ly = 0x80;
+  gp_report.rx = 0x80;
+  gp_report.ry = 0x80;
+  gp_report.vendor = 0x00;
+}
+
 // ==========================================
 // 3) メインロジック
 // ==========================================
 
 void setup() {
-  watchdog_enable(2000, 1);
+  watchdog_enable(WATCHDOG_TIMEOUT_MS, 1);
 
   // USB CDC (デバッグ用シリアル) 開始
   Serial.begin(115200);
@@ -109,7 +125,12 @@ void setup() {
     TinyUSBDevice.begin();
   }
 
-  delay(1000);
+  // USB初期化完了待ち (1s以上の固定待ちを避け、最大2s待機)
+  uint32_t usb_init_start = millis();
+  while (!TinyUSBDevice.isInitialized() && millis() - usb_init_start < USB_INIT_TIMEOUT_MS) {
+    watchdog_update();
+    delay(10);
+  }
   TinyUSBDevice.attach();
   
   // LED 初期化
@@ -167,33 +188,35 @@ void loop() {
           rx_index = 0;
           current_led_state = LED_ERROR;
           error_blink_start = millis();
+          // 改行まで読み飛ばして同期を戻す
+          while (active_serial->available() > 0) {
+            if (active_serial->read() == '\n') break;
+          }
         }
       }
     }
   }
 
   if (current_led_state == LED_ERROR) {
-    if (millis() - error_blink_start > 500) {
+    if (millis() - error_blink_start > ERROR_RECOVERY_MS) {
       current_led_state = is_mounted ? LED_IDLE : LED_DISCONNECT;
     }
   } 
-  // Safety timeout is currently disabled by user (v1.3.1 - v1.3.2)
-  /*
-  else if (millis() - last_command_ms > 250) { ... }
-  */
+  else if (ENABLE_SAFETY_TIMEOUT && (millis() - last_command_ms > COMMAND_TIMEOUT_MS)) {
+    reset_gamepad_report();
+    usb_keyboard.keyboardRelease(0);
+    current_led_state = LED_IDLE;
+  }
 
   update_led();
 
   // Gamepad Report 送信
-  static uint32_t last_ms = 0;
+  static uint32_t last_report_ms = 0;
   uint32_t now = millis();
-  if (now - last_ms >= 8) {
-    last_ms = now;
+  if (now - last_report_ms >= GAMEPAD_REPORT_INTERVAL_MS) {
+    last_report_ms = now;
     if (is_mounted && usb_gamepad.ready()) {
       usb_gamepad.sendReport(0, &gp_report, sizeof(gp_report));
-      #if REPORT_DELAY_US > 0
-        delayMicroseconds(REPORT_DELAY_US);
-      #endif
     }
   }
 }
@@ -240,9 +263,9 @@ static void parse_protocol_line(char* line) {
     for (int i = 1; line[i] != '\0'; i++) {
         // ライブラリの keyboardPress は ASCII文字を受け取る仕様のため、そのまま渡す
         if (usb_keyboard.keyboardPress(0, line[i])) {
-            delay(20);
+            delay(KEY_TYPE_DELAY_MS);
             usb_keyboard.keyboardRelease(0);
-            delay(20);
+            delay(KEY_TYPE_DELAY_MS);
         }
     }
     return;
@@ -250,17 +273,23 @@ static void parse_protocol_line(char* line) {
 
   // 2. 個別キー操作: Key/Press/Release (Raw HID Keycode)
   if (strncmp(line, "Key ", 4) == 0) {
-    uint8_t k = (uint8_t)strtoul(&line[4], NULL, 16);
-    uint8_t keys[6] = { k, 0, 0, 0, 0, 0 };
-    usb_keyboard.keyboardReport(0, 0, keys); // Start Press
-    delay(20);
-    usb_keyboard.keyboardRelease(0);         // Release
+    char* endptr;
+    uint8_t k = (uint8_t)strtoul(&line[4], &endptr, 16);
+    if (endptr != &line[4]) {
+      uint8_t keys[6] = { k, 0, 0, 0, 0, 0 };
+      usb_keyboard.keyboardReport(0, 0, keys);
+      delay(KEY_TYPE_DELAY_MS);
+      usb_keyboard.keyboardRelease(0);
+    }
     return;
   }
   if (strncmp(line, "Press ", 6) == 0) {
-    uint8_t k = (uint8_t)strtoul(&line[6], NULL, 16);
-    uint8_t keys[6] = { k, 0, 0, 0, 0, 0 };
-    usb_keyboard.keyboardReport(0, 0, keys);
+    char* endptr;
+    uint8_t k = (uint8_t)strtoul(&line[6], &endptr, 16);
+    if (endptr != &line[6]) {
+      uint8_t keys[6] = { k, 0, 0, 0, 0, 0 };
+      usb_keyboard.keyboardReport(0, 0, keys);
+    }
     return;
   }
   if (strncmp(line, "Release ", 8) == 0) {
@@ -272,9 +301,7 @@ static void parse_protocol_line(char* line) {
 
   // 3. 'end' コマンド: 全てをニュートラルに戻す
   if (strncmp(line, "end", 3) == 0) {
-    gp_report.buttons = 0; gp_report.hat = 0x08;
-    gp_report.lx = 0x80; gp_report.ly = 0x80;
-    gp_report.rx = 0x80; gp_report.ry = 0x80;
+    reset_gamepad_report();
     usb_keyboard.keyboardRelease(0);
     Serial.println("Command: end (Reset all)");
     return;
