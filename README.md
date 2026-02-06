@@ -3,11 +3,17 @@
 RP2040-Zero (Waveshare) を使って Nintendo Switch を操作するためのプロジェクトです。
 PC上の「Poke-Controller Modified」等のツールから UART 経由でコマンドを受け取り、Switch の有線コントローラー (HORIPAD) として動作します。
 
+> **Current Version: v1.4.3**
+> 
+> 内部アーキテクチャを刷新し、より高速・省メモリなステートマシン駆動になりました。旧来の `SetCommand` 構造体を使用せず、C++ネイティブな制御を行うことで複雑なマクロ（日付変更など）もスムーズに動作します。
+
 ## 特徴
 
 - **Waveshare RP2040-Zero に最適化**: 小型かつ安価なボードで動作します。
 - **Poke-Controller Modified 対応**: 標準的なシリアルプロトコルを解釈し、PC からの入力を中継します。
-- **高信頼性・堅牢設計 (v1.4.0 強化)**:
+- **高信頼性・堅牢設計 (v1.4.3 強化)**:
+- **アーキテクチャ最適化 (v1.4.3)**: `SetCommand` 等の中間データを廃止し、ダイレクトなステートマシン制御 (`Active State Machine`) へ移行。応答速度とメンテナンス性が向上。
+- **プロトコル互換性 (v1.4.1)**: 内部データ構造を最適化（16bitボタンデータ対応）し、標準的なコントローラー仕様に準拠。
 - **プリセットコマンド (v1.4.0)**: `MASH_A` (連打), `INF_WATT` (無限ワット) などの定型操作を内蔵。
 - **日付・年変更 (v1.4.0)**: 本体の時計を自動で進める/戻すコマンドを実装。
 - **JISキーボード対応 (v1.4.0)**: 日本語キーボード環境でも記号がズレない正確な入力を実現。
@@ -41,7 +47,7 @@ PC上の「Poke-Controller Modified」等のツールから UART 経由でコマ
    - PC に「RPI-RP2」という名前のドライブとして認識されます。
 
 2. **ファームウェアを書き込む**:
-   - [Releases ページ](https://github.com/zephel01/PokeControllerForRP2040Zero/releases/tag/v1.4.0) から `PokeControllerForRP2040Zero_RP2040Zero_v1.4.0.uf2` をダウンロードします。
+   - [Releases ページ](https://github.com/zephel01/PokeControllerForRP2040Zero/releases) から最新の `.uf2` ファイル (例: `PokeControllerForRP2040Zero_RP2040Zero_v1.4.3.uf2`) をダウンロードします。
    - ダウンロードした `.uf2` ファイルを、先ほどの「RPI-RP2」ドライブにドラッグ＆ドロップします。
 
 3. **完了**:
@@ -213,6 +219,15 @@ self.keys.type_string("Hello")
 ## ライセンス
 
 [MIT License](LICENSE)
+
+---
+
+## 更新履歴 (Changelog)
+
+- **v1.4.3**: アーキテクチャ刷新。`SetCommand` 構造体および配列処理を廃止し、ステートマシンによる直接制御へ移行。ユーティリティ関数 (`ApplyButtonCommand` 等) を高効率な API に統合。
+- **v1.4.2**: コード整理。タイミング定数の `Common.h` への一元化。
+- **v1.4.1**: データ構造の最適化。ボタンデータを 16bit 化し、他のマイコン版との仕様互換性を確保。
+- **v1.4.0**: メジャーアップデート。プリセットコマンド、日付・年変更機能、JISキーボード対応、WDT強化、モジュール分割を実施。
 
 ---
 
