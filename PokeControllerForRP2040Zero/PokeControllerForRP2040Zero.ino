@@ -12,6 +12,9 @@
 
 /**
  * RP2040-Zero Switch Controller
+ * v1.4.3: Architecture Refactoring (State Machine, No SetCommand), Protocol Optimization
+ * v1.4.2: Code Cleanup (Common.h)
+ * v1.4.1: Protocol Unification (16bit)
  * v1.4.0: Preset Commands, Date/Year Change, High-Level API, Japanese Keyboard Support
  * v1.3.5: Support Communication Activity LED (Blinking green)
  * v1.3.4: Stability & reliability enhancements (Watchdog, UART recovery, Error checking)
