@@ -8,6 +8,8 @@
 
 #include <Arduino.h>
 #include <Adafruit_TinyUSB.h>
+#include <cstring>
+#include <climits>
 
 // ==========================================
 // Gamepadレポート定義
@@ -21,6 +23,15 @@ typedef struct TU_ATTR_PACKED {
   uint8_t  ry;
   uint8_t  vendor;
 } switch_report_t;
+
+// ==========================================
+// SetCommand 構造体 - コマンド操作設定
+// ==========================================
+typedef struct {
+  uint8_t command;   // ボタンのビットマップ（BUTTON_A, BUTTON_Bなど）
+  int duration;      // 操作時間（ミリ秒）
+  int waittime;      // 操作後の待ち時間（ミリ秒）
+} SetCommand;
 
 // ==========================================
 // 外部変数宣言（メインファイルで定義）
