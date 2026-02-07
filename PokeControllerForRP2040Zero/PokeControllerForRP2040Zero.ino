@@ -6,12 +6,12 @@
 // v1.4.0 新機能インクルード
 #include "Common.h"
 #include "Presets.h"
-#include "DateChange.h"
 #include "HighLevelAPI.h"
 #include "JapaneseKeyboard.h"
 
 /**
  * RP2040-Zero Switch Controller
+ * v1.5.0: Date/Year Change Commands Changed to Preset Format
  * v1.4.3: Architecture Refactoring (State Machine, No SetCommand), Protocol Optimization
  * v1.4.2: Code Cleanup (Common.h)
  * v1.4.1: Protocol Unification (16bit)
@@ -275,18 +275,6 @@ static void parse_protocol_line(char* line) {
   if (!is_hex_char(line[0])) {
     // プリセットコマンド
     parse_preset_command(line);
-
-    // 日付・年変更コマンド
-    DateChangeCommand date_cmd;
-    int years;
-    if (parse_date_command(line, &date_cmd)) {
-      execute_date_change(&date_cmd);
-      return;
-    }
-    if (parse_year_command(line, &years)) {
-      execute_year_change(years);
-      return;
-    }
 
     // 既存の特殊コマンドに該当しない場合はreturnしない
     // 既存の"end"などの処理に続く

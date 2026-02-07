@@ -1,7 +1,7 @@
 /**
  * Presets.cpp - プリセットコマンド実装（Pico互換方式）
  * v1.4.0: プリセットコマンド機能追加
- * v1.5.0: Pico互換コマンドシステム実装
+ * v1.5.0: Pico互換コマンドシステム実装、日付変更コマンドを固定プリセット方式に変更
  */
 
 #include "Presets.h"
@@ -735,6 +735,24 @@ void parse_preset_command(const char* cmd) {
     cnt_command = 0;
     blduration = false;
     blwaittime = false;
+  }
+  else if (strcmp(cmd, "changethedate") == 0) {
+    proc_state = CHANGETHEDATE;
+    cnt_command = 0;
+    blduration = false;
+    blwaittime = false;
+    YearChangeCnt = 0;
+    MonthChangeCnt = 0;
+    DayChangeCnt = 0;
+    step_size_buf = INT8_MAX;
+  }
+  else if (strcmp(cmd, "changetheyear") == 0) {
+    proc_state = CHANGETHEYEAR;
+    cnt_command = 0;
+    blduration = false;
+    blwaittime = false;
+    YearChangeCnt = 0;
+    step_size_buf = INT8_MAX;
   }
 }
 

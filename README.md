@@ -3,18 +3,18 @@
 RP2040-Zero (Waveshare) を使って Nintendo Switch を操作するためのプロジェクトです。
 PC上の「Poke-Controller Modified」等のツールから UART 経由でコマンドを受け取り、Switch の有線コントローラー (HORIPAD) として動作します。
 
-> **Current Version: v1.4.3**
+> **Current Version: v1.5.0**
 
-> PokeControllerForPico互換コマンドシステムを実装。SetCommand構造体、BUTTON_DEFINE列挙型、SwitchFunction()、ApplyButtonCommand()、GetNextReportFromCommands()系のユーティリティ関数を追加。全プリセットコマンドに対応。
+> 日付・年変更コマンドを固定プリセット方式に変更。`changethedate`（1年/1月/1日進める）、`changetheyear`（1年進める）プリセットコマンドを追加。動的指定の `Date Y/M/D` と `Year N` コマンドは削除。
 
 ## 特徴
 
 - **Waveshare RP2040-Zero に最適化**: 小型かつ安価なボードで動作します。
 - **Poke-Controller Modified 対応**: 標準的なシリアルプロトコルを解釈し、PC からの入力を中継します。
-- **高信頼性・堅牢設計 (v1.4.3 強化)**:
+- **高信頼性・堅牢設計 (v1.5.0 強化)**:
 - **Pico互換コマンドシステム (v1.4.3)**: PokeControllerForPicoと互換なコマンドシステムを実装。SetCommand構造体、BUTTON_DEFINE列挙型、SwitchFunction()、ApplyButtonCommand()、GetNextReportFromCommands()系のユーティリティ関数を追加。
-- **プリセットコマンド (v1.4.0)**: `mash_a` (連打), `aaabb` (AAABBパターン), `auto_league` (自動リーグ戦闘), `inf_watt` (無限ワット), `pickupberry` (ベリー収集) などの定型操作を実装。
-- **日付・年変更 (v1.4.0)**: 本体の時計を自動で進める/戻すコマンドを実装。
+- **プリセットコマンド (v1.4.0)**: `mash_a` (連打), `aaabb` (AAABBパターン), `auto_league` (自動リーグ戦闘), `inf_watt` (無限ワット), `pickupberry` (ベリー収集), `changethedate` (日付変更), `changetheyear` (年変更) などの定型操作を実装。
+- **日付・年変更 (v1.5.0)**: `changethedate`（1年/1月/1日進める）、`changetheyear`（1年進める）固定プリセットコマンドを実装。
 - **JISキーボード対応 (v1.4.0)**: 日本語キーボード環境でも記号がズレない正確な入力を実現。
 - **高レベルAPI (v1.4.0)**: スティック操作・ボタン操作の柔軟なAPIを追加。
 - **WDT (Watchdog Timer)**: 万が一のフリーズ時も自動で再起動します。10秒に延長し安定性を向上。
@@ -263,9 +263,9 @@ self.keys.type_string("Hello")
 - `changetheyear`: 年変更。
 
 ### 日付・年変更
-本体の設定画面で日付を操作するコマンドです。
-- `Date Y/M/D`: 年/月/日の変化量を指定（例: `Date 1/0/1` で1年進める、`Date -1/0/0` で1年戻す）。
-- `Year N`: 年の変化量を指定（例: `Year 5` で5年進める、`Year -3` で3年戻す）。
+本体の設定画面で日付を操作する固定プリセットコマンドです。
+- `changethedate`: 1年/1月/1日進める。
+- `changetheyear`: 1年進める。
 
 ---
 
@@ -289,6 +289,7 @@ self.keys.type_string("Hello")
 
 ## 更新履歴 (Changelog)
 
+- **v1.5.0**: 日付・年変更コマンドを固定プリセット方式に変更。`changethedate`（1年/1月/1日進める）、`changetheyear`（1年進める）プリセットコマンドを追加。動的指定の `Date Y/M/D` と `Year N` コマンドは削除。
 - **v1.4.3**: PokeControllerForPico互換コマンドシステムを実装。SetCommand構造体、BUTTON_DEFINE列挙型、SwitchFunction()、ApplyButtonCommand()、GetNextReportFromCommands()系のユーティリティ関数を追加。全プリセットコマンドに対応。
 - **v1.4.2**: コード整理。タイミング定数の `Common.h` への一元化。
 - **v1.4.1**: データ構造の最適化。ボタンデータを 16bit 化し、他のマイコン版との仕様互換性を確保。
